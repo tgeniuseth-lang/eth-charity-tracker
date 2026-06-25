@@ -123,7 +123,7 @@ def main():
     send_text("✅ ETHLABS internal donation tracker is online.")
 
     total_data = load_json(TOTAL_FILE, {"total": 0.0})
-    seen = load_json(SEEN_FILE, [])
+    seen = [tx.get("hash", "") for tx in get_internal_transactions()[:50]] save_json(SEEN_FILE, seen)
 
     if not isinstance(seen, list):
         seen = []
