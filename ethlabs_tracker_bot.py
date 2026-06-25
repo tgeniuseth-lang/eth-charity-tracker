@@ -52,9 +52,9 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_all_contract_donations(self):
-        """Get ALL ETH transfers FROM the contract TO the charity wallet"""
+        """Get ALL ETH transfers FROM the contract TO the charity wallet using Etherscan V2 API"""
         try:
-            url = f"https://api.etherscan.io/api?module=account&action=txlist&address={self.ethlabs_wallet}&sort=asc&apikey={ETHERSCAN_API_KEY}"
+            url = f"https://api.etherscan.io/v2/api?module=account&action=txlist&address={self.ethlabs_wallet}&sort=asc&apikey={ETHERSCAN_API_KEY}"
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
