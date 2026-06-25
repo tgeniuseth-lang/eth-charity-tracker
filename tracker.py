@@ -91,15 +91,6 @@ while True:
                 print("Checking block:", block_number, flush=True)
                 
                 for tx in block.transactions:
-                    print(
-                        "TX:",
-                        tx["from"],
-                        "->",
-                        tx.to,
-                        "ETH:",
-                        float(w3.from_wei(tx.value, "ether")),
-                        flush=True
-                    )
                     if (
                         tx.to
                         and Web3.to_checksum_address(tx.to) == DONATION_WALLET
