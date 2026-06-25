@@ -50,7 +50,7 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_wallet_balance(self):
-        """Get current ETH balance"""
+        """Get current ETH balance with detailed error reporting"""
         try:
             url = "https://api.etherscan.io/api"
             params = {
@@ -60,16 +60,34 @@ class EthlabsTracker:
                 "tag": "latest",
                 "apikey": self.etherscan_api_key
             }
+            
+            print(f"🔍 Fetching balance from Etherscan...")
+            print(f"   Wallet: {self.ethlabs_wallet}")
+            print(f"   API Key: {self.etherscan_api_key[:10]}...")
+            
             response = requests.get(url, params=params, timeout=10)
+            print(f"   Response Status: {response.status_code}")
+            
             if response.status_code == 200:
                 data = response.json()
+                print(f"   API Response: {data}")
+                
                 if data["status"] == "1":
                     balance_wei = int(data["result"])
                     balance_eth = balance_wei / 1e18
+                    print(f"   ✅ Balance fetched: {balance_eth:.4f} ETH")
                     return balance_eth
+                else:
+                    print(f"   ❌ API Error: {data.get('message', 'Unknown error')}")
+                    return None
+            else:
+                print(f"   ❌ HTTP Error: {response.status_code}")
+                print(f"   Response: {response.text}")
+                return None
+                
         except Exception as e:
-            print(f"Error fetching balance: {e}")
-        return None
+            print(f"❌ Exception: {type(e).__name__}: {e}")
+            return None
     
     async def send_telegram_message(self, message):
         try:
@@ -99,29 +117,25 @@ class EthlabsTracker:
     async def check_donations(self):
         print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking wallet...")
         
-        # Get ETH price
         self.get_eth_price()
         print(f"ETH Price: ${self.eth_price:,.2f}")
         
-        # Get current balance
         current_balance = self.get_wallet_balance()
         
         if current_balance is None:
-            print("⚠️ Could not fetch balance")
+            print("⚠️ Failed to fetch balance")
             return
         
-        print(f"💰 Current Balance: {current_balance:.4f} ETH (≈ ${current_balance * self.eth_price:,.2f})")
+        print(f"💰 Current Balance: {current_balance:.4f} ETH")
         print(f"📊 Last Known Balance: {self.last_known_balance:.4f} ETH")
         
-        # Check if balance increased
         if current_balance > self.last_known_balance:
             new_donation = current_balance - self.last_known_balance
-            print(f"✅ New donation detected: {new_donation:.4f} ETH!")
+            print(f"✅ New donation: {new_donation:.4f} ETH!")
             
             self.last_known_balance = current_balance
             self.save_state()
             
-            # Send Telegram message
             message = self.format_donation_message(new_donation, current_balance)
             await self.send_telegram_message(message)
         else:
@@ -129,8 +143,7 @@ class EthlabsTracker:
     
     async def run(self):
         print(f"🚀 Starting Ethlabs Donation Tracker")
-        print(f"📍 Monitoring wallet: {self.ethlabs_wallet}")
-        print(f"⏱️  Check interval: 60 seconds\n")
+        print(f"📍 Wallet: {self.ethlabs_wallet}\n")
         
         while True:
             try:
@@ -145,14 +158,8 @@ async def main():
     telegram_channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
     etherscan_api_key = os.getenv("ETHERSCAN_API_KEY")
     
-    if not telegram_bot_token:
-        print("❌ TELEGRAM_BOT_TOKEN not set")
-        return
-    if not telegram_channel_id:
-        print("❌ TELEGRAM_CHANNEL_ID not set")
-        return
-    if not etherscan_api_key:
-        print("❌ ETHERSCAN_API_KEY not set")
+    if not telegram_bot_token or not telegram_channel_id or not etherscan_api_key:
+        print("❌ Missing environment variables")
         return
     
     tracker = EthlabsTracker(telegram_bot_token, telegram_channel_id, etherscan_api_key)
