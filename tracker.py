@@ -7,106 +7,153 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 
-DONATION_WALLET = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79".lower()
-DONATION_SENDER = "0x77AF91F7FE24f97Cf18Ac7Cb5e7F4c858cf10ff5".lower()
+DONATION_WALLET = os.getenv(
+    "DONATION_WALLET",
+    "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
+).lower()
 
-IMAGE_URL = "https://ibb.co/bRzrbJw3"
+DONATION_SENDER = os.getenv(
+    "DONATION_SENDER",
+    "0x77AF91F7FE24f97Cf18Ac7Cb5e7F4c858cf10ff5"
+).lower()
+
+IMAGE_URL = os.getenv("IMAGE_URL", "https://ibb.co/bRzrbJw3")
+
 TOTAL_FILE = "total.json"
 SEEN_FILE = "seen.json"
 
 
-def get_eth_price():
+def load_json(filename, default):
     try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
-        return requests.get(url, timeout=10).json()["ethereum"]["usd"]
-    except:
-        return 0
-
-
-def load_json(file, default):
-    if os.path.exists(file):
-        with open(file, "r") as f:
-            return json.load(f)
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        print("Load JSON error:", e, flush=True)
     return default
 
 
-def save_json(file, data):
-    with open(file, "w") as f:
-        json.dump(data, f)
+def save_json(filename, data):
+    try:
+        with open(filename, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print("Save JSON error:", e, flush=True)
 
 
-def send_photo(caption):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    r = requests.post(url, data={
-        "chat_id": CHAT_ID,
-        "photo": IMAGE_URL,
-        "caption": caption,
-        "parse_mode": "HTML"
-    })
-    print("Telegram:", r.status_code, r.text, flush=True)
+def get_eth_price():
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price"
+        params = {
+            "ids": "ethereum",
+            "vs_currencies": "usd"
+        }
+        data = requests.get(url, params=params, timeout=15).json()
+        return float(data["ethereum"]["usd"])
+    except Exception as e:
+        print("Price error:", e, flush=True)
+        return 0
 
 
 def send_text(text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    r = requests.post(url, json={
-        "chat_id": CHAT_ID,
-        "text": text
-    })
-    print("Telegram:", r.status_code, r.text, flush=True)
-
-
-send_text("✅ ETHLABS internal donation tracker is online.")
-
-total_data = load_json(TOTAL_FILE, {"total": 0})
-seen = load_json(SEEN_FILE, [])
-
-while True:
     try:
-        url = "https://api.etherscan.io/api"
-        params = {
-            "module": "account",
-            "action": "txlistinternal",
-            "address": DONATION_WALLET,
-            "startblock": 0,
-            "endblock": 99999999,
-            "sort": "desc",
-            "apikey": ETHERSCAN_API_KEY
-        }
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        r = requests.post(
+            url,
+            json={
+                "chat_id": CHAT_ID,
+                "text": text,
+                "parse_mode": "HTML"
+            },
+            timeout=20
+        )
+        print("Telegram text:", r.status_code, r.text, flush=True)
+    except Exception as e:
+        print("Telegram text error:", e, flush=True)
 
-data = requests.get(url, params=params, timeout=20).json()
 
-result = data.get("result", [])
+def send_photo(caption):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+        r = requests.post(
+            url,
+            data={
+                "chat_id": CHAT_ID,
+                "photo": IMAGE_URL,
+                "caption": caption,
+                "parse_mode": "HTML"
+            },
+            timeout=20
+        )
 
-if not isinstance(result, list):
-    print("Etherscan error:", data, flush=True)
-    time.sleep(60)
-    continue
+        print("Telegram photo:", r.status_code, r.text, flush=True)
 
-txs = result
+        if r.status_code != 200:
+            send_text(caption)
 
-        for tx in reversed(txs[:20]):
-            tx_hash = tx.get("hash")
+    except Exception as e:
+        print("Telegram photo error:", e, flush=True)
+        send_text(caption)
 
-            if tx_hash in seen:
-                continue
 
-            from_addr = tx.get("from", "").lower()
-            to_addr = tx.get("to", "").lower()
-            value_eth = int(tx.get("value", 0)) / 10**18
+def get_internal_transactions():
+    url = "https://api.etherscan.io/api"
+    params = {
+        "module": "account",
+        "action": "txlistinternal",
+        "address": DONATION_WALLET,
+        "startblock": 0,
+        "endblock": 99999999,
+        "sort": "desc",
+        "apikey": ETHERSCAN_API_KEY
+    }
 
-            if (
-                from_addr == DONATION_SENDER
-                and to_addr == DONATION_WALLET
-                and value_eth > 0
-            ):
-                seen.append(tx_hash)
-                total_data["total"] += value_eth
+    data = requests.get(url, params=params, timeout=25).json()
+    result = data.get("result", [])
 
-                eth_price = get_eth_price()
-                donation_usd = value_eth * eth_price
-                total_usd = total_data["total"] * eth_price
+    if not isinstance(result, list):
+        print("Etherscan error:", data, flush=True)
+        return []
 
-                caption = f"""
+    return result
+
+
+def main():
+    send_text("✅ ETHLABS internal donation tracker is online.")
+
+    total_data = load_json(TOTAL_FILE, {"total": 0.0})
+    seen = load_json(SEEN_FILE, [])
+
+    if not isinstance(seen, list):
+        seen = []
+
+    while True:
+        try:
+            txs = get_internal_transactions()
+
+            for tx in reversed(txs[:30]):
+                tx_hash = tx.get("hash", "")
+
+                if not tx_hash or tx_hash in seen:
+                    continue
+
+                from_addr = tx.get("from", "").lower()
+                to_addr = tx.get("to", "").lower()
+                value_wei = int(tx.get("value", "0"))
+                value_eth = value_wei / 10**18
+
+                if (
+                    from_addr == DONATION_SENDER
+                    and to_addr == DONATION_WALLET
+                    and value_eth > 0
+                ):
+                    total_data["total"] = float(total_data.get("total", 0)) + value_eth
+
+                    eth_price = get_eth_price()
+                    donation_usd = value_eth * eth_price
+                    total_usd = total_data["total"] * eth_price
+
+                    caption = f"""
 🧪 <b>ETHLABS - New Donation</b> 🧪
 
 🎉 New Donation: <b>{value_eth:,.4f} ETH</b> ≈ <b>${donation_usd:,.2f}</b>
@@ -115,17 +162,20 @@ txs = result
 🐦 Twitter: https://x.com/ethlabs_org?s=20
 """
 
-                send_photo(caption)
+                    send_photo(caption)
 
-            if tx_hash not in seen:
                 seen.append(tx_hash)
 
-        seen = seen[-500:]
-        save_json(SEEN_FILE, seen)
-        save_json(TOTAL_FILE, total_data)
+            seen = seen[-500:]
+            save_json(SEEN_FILE, seen)
+            save_json(TOTAL_FILE, total_data)
 
-        time.sleep(60)
+            time.sleep(60)
 
-    except Exception as e:
-        print("Error:", e, flush=True)
-        time.sleep(60)
+        except Exception as e:
+            print("Main loop error:", e, flush=True)
+            time.sleep(60)
+
+
+if __name__ == "__main__":
+    main()
