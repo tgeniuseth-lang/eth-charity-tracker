@@ -18,7 +18,6 @@ class EthlabsTracker:
         self.telegram_channel_id = channel_id
         self.ethlabs_wallet = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
         self.contract_address = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"
-        self.last_total = 0.0
         self.total_donations = 0.0
         self.eth_price = 0.0
         self.image_url = "https://ibb.co/bRzrbJw3"
@@ -30,7 +29,6 @@ class EthlabsTracker:
                 with open(STATE_FILE, 'r') as f:
                     state = json.load(f)
                     self.total_donations = state.get("total_donations", 0.0)
-                    self.last_total = self.total_donations
             except Exception as e:
                 print(f"Error loading state: {e}")
     
@@ -54,9 +52,9 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_all_contract_donations(self):
-        """Get ALL ETH transfers FROM the contract TO the charity wallet (entire history)"""
+        """Get ALL ETH transfers FROM the contract TO the charity wallet"""
         try:
-            url = f"https://api.etherscan.io/api?module=account&action=txlistinternal&address={self.ethlabs_wallet}&apikey={ETHERSCAN_API_KEY}"
+            url = f"https://api.etherscan.io/api?module=account&action=txlist&address={self.ethlabs_wallet}&sort=asc&apikey={ETHERSCAN_API_KEY}"
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
@@ -64,13 +62,15 @@ class EthlabsTracker:
                 if data['status'] == '1' and data['result']:
                     total_from_contract = 0.0
                     
-                    # Sum ALL transactions FROM the contract to the wallet
+                    # Filter for transactions FROM the contract only
                     for tx in data['result']:
                         if tx['from'].lower() == self.contract_address.lower() and tx['to'].lower() == self.ethlabs_wallet.lower():
                             eth_amount = int(tx['value']) / 1e18
                             total_from_contract += eth_amount
                     
                     return total_from_contract
+                else:
+                    print(f"API response status: {data.get('status')} - {data.get('message')}")
         except Exception as e:
             print(f"Error fetching contract donations: {e}")
         
