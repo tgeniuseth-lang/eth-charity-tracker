@@ -59,7 +59,6 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_wallet_balance(self):
-        """Get current ETH balance - simple and reliable"""
         payload = {
             "jsonrpc": "2.0",
             "method": "eth_getBalance",
@@ -81,60 +80,41 @@ class EthlabsTracker:
         
         return None
     
-async def send_telegram_message(self, message):
-    # Get all channel IDs from environment
-    channel_ids = []
-    i = 1
-    while True:
-        if i == 1:
-            channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
-        else:
-            channel_id = os.getenv(f"TELEGRAM_CHANNEL_ID_{i}")
+    async def send_telegram_message(self, message):
+        channel_ids = []
+        i = 1
+        while True:
+            if i == 1:
+                channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
+            else:
+                channel_id = os.getenv(f"TELEGRAM_CHANNEL_ID_{i}")
+            
+            if not channel_id:
+                break
+            channel_ids.append(channel_id)
+            i += 1
         
-        if not channel_id:
-            break
-        channel_ids.append(channel_id)
-        i += 1
-    
-    # Send to all channels
-    for channel_id in channel_ids:
-        try:
-            await self.bot.send_photo(
-                chat_id=channel_id,
-                photo=self.image_url,
-                caption=message,
-                parse_mode="HTML"
-            )
-            print(f"✅ Message sent to {channel_id}")
-        except TelegramError as e:
-            print(f"Telegram error for {channel_id}: {e}")
+        for channel_id in channel_ids:
             try:
-                await self.bot.send_message(
+                await self.bot.send_photo(
                     chat_id=channel_id,
-                    text=message,
+                    photo=self.image_url,
+                    caption=message,
                     parse_mode="HTML"
                 )
-            except:
-                pass
-        except Exception as e:
-            print(f"Error sending to {channel_id}: {e}")
-                photo=self.image_url,
-                caption=message,
-                parse_mode="HTML"
-            )
-            print(f"✅ Telegram message with image sent")
-        except TelegramError as e:
-            print(f"Telegram error: {e}")
-            try:
-                await self.bot.send_message(
-                    chat_id=self.telegram_channel_id,
-                    text=message,
-                    parse_mode="HTML"
-                )
-            except:
-                pass
-        except Exception as e:
-            print(f"Error sending message: {e}")
+                print(f"✅ Message sent to {channel_id}")
+            except TelegramError as e:
+                print(f"Telegram error for {channel_id}: {e}")
+                try:
+                    await self.bot.send_message(
+                        chat_id=channel_id,
+                        text=message,
+                        parse_mode="HTML"
+                    )
+                except:
+                    pass
+            except Exception as e:
+                print(f"Error sending to {channel_id}: {e}")
     
     def format_donation_message(self, donation_eth, total_eth):
         donation_usd = donation_eth * self.eth_price
@@ -154,7 +134,6 @@ async def send_telegram_message(self, message):
         self.get_eth_price()
         print(f"ETH Price: ${self.eth_price:,.2f}")
         
-        # Get current wallet balance
         current_balance = self.get_wallet_balance()
         
         if current_balance is None:
@@ -164,7 +143,6 @@ async def send_telegram_message(self, message):
         print(f"💰 Current balance: {current_balance:.4f} ETH")
         print(f"📊 Last balance: {self.last_balance:.4f} ETH")
         
-        # Check if balance increased
         if current_balance > self.last_balance:
             new_donation = current_balance - self.last_balance
             print(f"🎉 New donation detected: {new_donation:.4f} ETH!")
