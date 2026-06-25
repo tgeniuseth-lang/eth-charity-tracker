@@ -15,10 +15,11 @@ class EthlabsTracker:
     def __init__(self, bot_token, channel_id, api_key):
         self.bot = Bot(token=bot_token)
         self.telegram_channel_id = channel_id
-        self.etherscan_api_key = api_key
         self.ethlabs_wallet = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
         self.last_known_balance = 0.0
         self.eth_price = 0.0
+        # Public RPC endpoint (no key needed)
+        self.rpc_url = "https://eth.public.blastapi.io"
         self.load_state()
         
     def load_state(self):
@@ -50,26 +51,27 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_wallet_balance(self):
-        """Get current ETH balance using Etherscan V2 API"""
+        """Get ETH balance using public RPC endpoint"""
         try:
-            url = "https://api.etherscan.io/api/v2/account/balance"
-            params = {
-                "address": self.ethlabs_wallet,
-                "apikey": self.etherscan_api_key
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "eth_getBalance",
+                "params": [self.ethlabs_wallet, "latest"],
+                "id": 1
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.post(self.rpc_url, json=payload, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data["status"] == "1":
-                    balance_wei = int(data["result"])
+                if "result" in data:
+                    balance_wei = int(data["result"], 16)
                     balance_eth = balance_wei / 1e18
                     print(f"✅ Balance: {balance_eth:.4f} ETH (≈ ${balance_eth * self.eth_price:,.2f})")
                     return balance_eth
                 else:
-                    print(f"❌ API Error: {data.get('message', 'Unknown error')}")
+                    print(f"❌ RPC Error: {data}")
                     return None
             else:
                 print(f"❌ HTTP Error: {response.status_code}")
@@ -143,13 +145,12 @@ class EthlabsTracker:
 async def main():
     telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     telegram_channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
-    etherscan_api_key = os.getenv("ETHERSCAN_API_KEY")
     
-    if not telegram_bot_token or not telegram_channel_id or not etherscan_api_key:
-        print("❌ Missing environment variables")
+    if not telegram_bot_token or not telegram_channel_id:
+        print("❌ Missing TELEGRAM variables")
         return
     
-    tracker = EthlabsTracker(telegram_bot_token, telegram_channel_id, etherscan_api_key)
+    tracker = EthlabsTracker(telegram_bot_token, telegram_channel_id, None)
     await tracker.run()
 
 if __name__ == "__main__":
