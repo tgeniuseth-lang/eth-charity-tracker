@@ -84,7 +84,7 @@ while True:
             for block_number in range(last_block + 1, current_block + 1):
                 block = w3.eth.get_block(block_number, full_transactions=True)
 
-                             for tx in block.transactions:
+                for tx in block.transactions:
                     if (
                         tx.to
                         and Web3.to_checksum_address(tx.to) == DONATION_WALLET
@@ -92,7 +92,6 @@ while True:
                         and Web3.to_checksum_address(tx["from"]) == TOKEN_ADDRESS
                     ):
                         amount_eth = w3.from_wei(tx.value, "ether")
-
                         if amount_eth > 0:
                             amount_eth = float(amount_eth)
                             total_donations += amount_eth
