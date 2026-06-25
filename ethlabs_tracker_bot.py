@@ -81,40 +81,31 @@ class EthlabsTracker:
         return None
     
     async def send_telegram_message(self, message):
-        channel_ids = []
-        i = 1
-        while True:
-            if i == 1:
-                channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
-            else:
-                channel_id = os.getenv(f"TELEGRAM_CHANNEL_ID_{i}")
-            
-            if not channel_id:
-                break
-            channel_ids.append(channel_id)
-            i += 1
-        
-        for channel_id in channel_ids:
+        channel_id_1 = os.getenv("TELEGRAM_CHANNEL_ID")
+        if channel_id_1:
             try:
                 await self.bot.send_photo(
-                    chat_id=channel_id,
+                    chat_id=channel_id_1,
                     photo=self.image_url,
                     caption=message,
                     parse_mode="HTML"
                 )
-                print(f"✅ Message sent to {channel_id}")
-            except TelegramError as e:
-                print(f"Telegram error for {channel_id}: {e}")
-                try:
-                    await self.bot.send_message(
-                        chat_id=channel_id,
-                        text=message,
-                        parse_mode="HTML"
-                    )
-                except:
-                    pass
+                print(f"✅ Message sent to channel 1")
             except Exception as e:
-                print(f"Error sending to {channel_id}: {e}")
+                print(f"Error sending to channel 1: {e}")
+        
+        channel_id_2 = os.getenv("TELEGRAM_CHANNEL_ID_2")
+        if channel_id_2:
+            try:
+                await self.bot.send_photo(
+                    chat_id=channel_id_2,
+                    photo=self.image_url,
+                    caption=message,
+                    parse_mode="HTML"
+                )
+                print(f"✅ Message sent to channel 2")
+            except Exception as e:
+                print(f"Error sending to channel 2: {e}")
     
     def format_donation_message(self, donation_eth, total_eth):
         donation_usd = donation_eth * self.eth_price
