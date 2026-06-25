@@ -73,8 +73,16 @@ while True:
             "apikey": ETHERSCAN_API_KEY
         }
 
-        data = requests.get(url, params=params, timeout=20).json()
-        txs = data.get("result", [])
+data = requests.get(url, params=params, timeout=20).json()
+
+result = data.get("result", [])
+
+if not isinstance(result, list):
+    print("Etherscan error:", data, flush=True)
+    time.sleep(60)
+    continue
+
+txs = result
 
         for tx in reversed(txs[:20]):
             tx_hash = tx.get("hash")
