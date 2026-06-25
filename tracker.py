@@ -54,12 +54,18 @@ last_block = w3.eth.block_number
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, json={
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    })
 
+    response = requests.post(
+        url,
+        json={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+    )
+
+    print("Telegram status:", response.status_code, flush=True)
+    print("Telegram response:", response.text, flush=True)
 
 send_telegram("✅ ETH charity token tracker is now online.")
 
