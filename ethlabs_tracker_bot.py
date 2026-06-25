@@ -12,14 +12,18 @@ load_dotenv()
 STATE_FILE = "ethlabs_state.json"
 
 class EthlabsTracker:
-    def __init__(self, bot_token, channel_id, api_key):
+    def __init__(self, bot_token, channel_id):
         self.bot = Bot(token=bot_token)
         self.telegram_channel_id = channel_id
         self.ethlabs_wallet = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
         self.last_known_balance = 0.0
         self.eth_price = 0.0
-        # Public RPC endpoint (no key needed)
-        self.rpc_url = "https://eth.public.blastapi.io"
+        # Fallback RPC endpoints
+        self.rpc_urls = [
+            "https://rpc.ankr.com/eth",
+            "https://eth-mainnet.public.blastapi.io",
+            "https://cloudflare-eth.com"
+        ]
         self.load_state()
         
     def load_state(self):
@@ -51,35 +55,33 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_wallet_balance(self):
-        """Get ETH balance using public RPC endpoint"""
-        try:
-            payload = {
-                "jsonrpc": "2.0",
-                "method": "eth_getBalance",
-                "params": [self.ethlabs_wallet, "latest"],
-                "id": 1
-            }
-            
-            response = requests.post(self.rpc_url, json=payload, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
+        """Get ETH balance using fallback RPC endpoints"""
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [self.ethlabs_wallet, "latest"],
+            "id": 1
+        }
+        
+        for rpc_url in self.rpc_urls:
+            try:
+                print(f"Trying RPC: {rpc_url}")
+                response = requests.post(rpc_url, json=payload, timeout=10)
                 
-                if "result" in data:
-                    balance_wei = int(data["result"], 16)
-                    balance_eth = balance_wei / 1e18
-                    print(f"✅ Balance: {balance_eth:.4f} ETH (≈ ${balance_eth * self.eth_price:,.2f})")
-                    return balance_eth
-                else:
-                    print(f"❌ RPC Error: {data}")
-                    return None
-            else:
-                print(f"❌ HTTP Error: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Exception: {type(e).__name__}: {e}")
-            return None
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    if "result" in data and data["result"] != "0x0":
+                        balance_wei = int(data["result"], 16)
+                        balance_eth = balance_wei / 1e18
+                        print(f"✅ Balance: {balance_eth:.4f} ETH (≈ ${balance_eth * self.eth_price:,.2f})")
+                        return balance_eth
+            except Exception as e:
+                print(f"  Failed: {type(e).__name__}")
+                continue
+        
+        print("❌ All RPC endpoints failed")
+        return None
     
     async def send_telegram_message(self, message):
         try:
@@ -150,7 +152,7 @@ async def main():
         print("❌ Missing TELEGRAM variables")
         return
     
-    tracker = EthlabsTracker(telegram_bot_token, telegram_channel_id, None)
+    tracker = EthlabsTracker(telegram_bot_token, telegram_channel_id)
     await tracker.run()
 
 if __name__ == "__main__":
