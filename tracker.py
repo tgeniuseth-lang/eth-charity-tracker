@@ -2,123 +2,119 @@ import os
 import time
 import json
 import requests
-from web3 import Web3
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-RPC_URL = os.getenv("RPC_URL")
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 
-DONATION_WALLET = Web3.to_checksum_address(
-    os.getenv("DONATION_WALLET", "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79")
-)
-
-DONATION_SENDER = Web3.to_checksum_address(
-    os.getenv("DONATION_SENDER", "0x77AF91F7FE24f97Cf18Ac7Cb5e7F4c858cf10ff5")
-)
+DONATION_WALLET = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79".lower()
+DONATION_SENDER = "0x77AF91F7FE24f97Cf18Ac7Cb5e7F4c858cf10ff5".lower()
 
 IMAGE_URL = "https://ibb.co/bRzrbJw3"
 TOTAL_FILE = "total.json"
-
-w3 = Web3(Web3.HTTPProvider(RPC_URL))
-last_block = w3.eth.block_number
+SEEN_FILE = "seen.json"
 
 
 def get_eth_price():
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
-        data = requests.get(url, timeout=10).json()
-        return float(data["ethereum"]["usd"])
-    except Exception:
+        return requests.get(url, timeout=10).json()["ethereum"]["usd"]
+    except:
         return 0
 
 
-def load_total():
-    if os.path.exists(TOTAL_FILE):
-        with open(TOTAL_FILE, "r") as f:
-            return json.load(f).get("total", 0)
-    return 0
+def load_json(file, default):
+    if os.path.exists(file):
+        with open(file, "r") as f:
+            return json.load(f)
+    return default
 
 
-def save_total(total):
-    with open(TOTAL_FILE, "w") as f:
-        json.dump({"total": total}, f)
+def save_json(file, data):
+    with open(file, "w") as f:
+        json.dump(data, f)
 
 
-def send_telegram_photo(caption):
+def send_photo(caption):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-
-    response = requests.post(
-        url,
-        data={
-            "chat_id": CHAT_ID,
-            "photo": IMAGE_URL,
-            "caption": caption,
-            "parse_mode": "HTML"
-        }
-    )
-
-    print("Telegram status:", response.status_code, flush=True)
-    print("Telegram response:", response.text, flush=True)
+    r = requests.post(url, data={
+        "chat_id": CHAT_ID,
+        "photo": IMAGE_URL,
+        "caption": caption,
+        "parse_mode": "HTML"
+    })
+    print("Telegram:", r.status_code, r.text, flush=True)
 
 
-def send_telegram_text(message):
+def send_text(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    response = requests.post(
-        url,
-        json={
-            "chat_id": CHAT_ID,
-            "text": message,
-            "parse_mode": "HTML"
-        }
-    )
-
-    print("Telegram status:", response.status_code, flush=True)
-    print("Telegram response:", response.text, flush=True)
+    r = requests.post(url, json={
+        "chat_id": CHAT_ID,
+        "text": text
+    })
+    print("Telegram:", r.status_code, r.text, flush=True)
 
 
-send_telegram_text("✅ ETHLABS donation tracker is now online.")
+send_text("✅ ETHLABS internal donation tracker is online.")
 
-total_donations = load_total()
+total_data = load_json(TOTAL_FILE, {"total": 0})
+seen = load_json(SEEN_FILE, [])
 
 while True:
     try:
-        current_block = w3.eth.block_number
+        url = "https://api.etherscan.io/api"
+        params = {
+            "module": "account",
+            "action": "txlistinternal",
+            "address": DONATION_WALLET,
+            "startblock": 0,
+            "endblock": 99999999,
+            "sort": "desc",
+            "apikey": ETHERSCAN_API_KEY
+        }
 
-        if current_block > last_block:
-            for block_number in range(last_block + 1, current_block + 1):
-                block = w3.eth.get_block(block_number, full_transactions=True)
-                print("Checking block:", block_number, flush=True)
-                
-                for tx in block.transactions:
-                    if (
-                        tx.to
-                        and Web3.to_checksum_address(tx.to) == DONATION_WALLET
-                        and tx["from"]
-                        and Web3.to_checksum_address(tx["from"]) == DONATION_SENDER
-                        and tx.value > 0
-                    ):
-                        amount_eth = float(w3.from_wei(tx.value, "ether"))
+        data = requests.get(url, params=params, timeout=20).json()
+        txs = data.get("result", [])
 
-                        total_donations += amount_eth
-                        save_total(total_donations)
+        for tx in reversed(txs[:20]):
+            tx_hash = tx.get("hash")
 
-                        eth_price = get_eth_price()
-                        donation_usd = amount_eth * eth_price
-                        total_usd = total_donations * eth_price
+            if tx_hash in seen:
+                continue
 
-                        caption = f"""
+            from_addr = tx.get("from", "").lower()
+            to_addr = tx.get("to", "").lower()
+            value_eth = int(tx.get("value", 0)) / 10**18
+
+            if (
+                from_addr == DONATION_SENDER
+                and to_addr == DONATION_WALLET
+                and value_eth > 0
+            ):
+                seen.append(tx_hash)
+                total_data["total"] += value_eth
+
+                eth_price = get_eth_price()
+                donation_usd = value_eth * eth_price
+                total_usd = total_data["total"] * eth_price
+
+                caption = f"""
 🧪 <b>ETHLABS - New Donation</b> 🧪
 
-🎉 New Donation: <b>{amount_eth:,.4f} ETH</b> ≈ <b>${donation_usd:,.2f}</b>
-📈 Total Donations: <b>{total_donations:,.4f} ETH</b> ≈ <b>${total_usd:,.2f}</b>
+🎉 New Donation: <b>{value_eth:,.4f} ETH</b> ≈ <b>${donation_usd:,.2f}</b>
+📈 Total Donations: <b>{total_data["total"]:,.4f} ETH</b> ≈ <b>${total_usd:,.2f}</b>
 
 🐦 Twitter: https://x.com/ethlabs_org?s=20
 """
 
-                        send_telegram_photo(caption)
+                send_photo(caption)
 
-            last_block = current_block
+            if tx_hash not in seen:
+                seen.append(tx_hash)
+
+        seen = seen[-500:]
+        save_json(SEEN_FILE, seen)
+        save_json(TOTAL_FILE, total_data)
 
         time.sleep(60)
 
