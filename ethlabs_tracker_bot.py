@@ -10,22 +10,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 STATE_FILE = "ethlabs_state.json"
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
 
 class EthlabsTracker:
     def __init__(self, bot_token, channel_id):
         self.bot = Bot(token=bot_token)
         self.telegram_channel_id = channel_id
         self.ethlabs_wallet = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
-        self.token_contract = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"
-        self.last_balance = 0.0
+        self.contract_address = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"
+        self.last_total = 0.0
         self.total_donations = 0.0
         self.eth_price = 0.0
         self.image_url = "https://ibb.co/bRzrbJw3"
-        self.rpc_urls = [
-            "https://rpc.ankr.com/eth",
-            "https://eth-mainnet.public.blastapi.io",
-            "https://cloudflare-eth.com"
-        ]
         self.load_state()
         
     def load_state(self):
@@ -33,8 +29,8 @@ class EthlabsTracker:
             try:
                 with open(STATE_FILE, 'r') as f:
                     state = json.load(f)
-                    self.last_balance = state.get("last_balance", 0.0)
                     self.total_donations = state.get("total_donations", 0.0)
+                    self.last_total = self.total_donations
             except Exception as e:
                 print(f"Error loading state: {e}")
     
@@ -42,7 +38,6 @@ class EthlabsTracker:
         try:
             with open(STATE_FILE, 'w') as f:
                 json.dump({
-                    "last_balance": self.last_balance,
                     "total_donations": self.total_donations
                 }, f)
         except Exception as e:
@@ -58,25 +53,26 @@ class EthlabsTracker:
             print(f"Error fetching ETH price: {e}")
         return self.eth_price
     
-    def get_wallet_balance(self):
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "eth_getBalance",
-            "params": [self.ethlabs_wallet, "latest"],
-            "id": 1
-        }
-        
-        for rpc_url in self.rpc_urls:
-            try:
-                response = requests.post(rpc_url, json=payload, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data:
-                        balance_wei = int(data["result"], 16)
-                        balance_eth = balance_wei / 1e18
-                        return balance_eth
-            except:
-                continue
+    def get_all_contract_donations(self):
+        """Get ALL ETH transfers FROM the contract TO the charity wallet (entire history)"""
+        try:
+            url = f"https://api.etherscan.io/api?module=account&action=txlistinternal&address={self.ethlabs_wallet}&apikey={ETHERSCAN_API_KEY}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data['status'] == '1' and data['result']:
+                    total_from_contract = 0.0
+                    
+                    # Sum ALL transactions FROM the contract to the wallet
+                    for tx in data['result']:
+                        if tx['from'].lower() == self.contract_address.lower() and tx['to'].lower() == self.ethlabs_wallet.lower():
+                            eth_amount = int(tx['value']) / 1e18
+                            total_from_contract += eth_amount
+                    
+                    return total_from_contract
+        except Exception as e:
+            print(f"Error fetching contract donations: {e}")
         
         return None
     
@@ -107,49 +103,49 @@ class EthlabsTracker:
             except Exception as e:
                 print(f"Error sending to channel 2: {e}")
     
-    def format_donation_message(self, donation_eth, total_eth):
-        donation_usd = donation_eth * self.eth_price
-        total_usd = total_eth * self.eth_price
+    def format_donation_message(self, new_donation_eth, total_donations_eth):
+        new_donation_usd = new_donation_eth * self.eth_price
+        total_donations_usd = total_donations_eth * self.eth_price
         
         message = (
             "🧪 <b>ETHLABS - New Donation</b> 🧪\n\n"
-            f"🎉 New Donation: {donation_eth:.4f} ETH ≈ ${donation_usd:,.2f}\n"
-            f"📈 Total Donations: {total_eth:.4f} ETH ≈ ${total_usd:,.2f}\n\n"
-            "🐦 Twitter: https://x.com/ethlabs_org?s=20"
+            f"🎉 Added This Minute: {new_donation_eth:.4f} ETH ≈ ${new_donation_usd:,.2f}\n"
+            f"📈 Total Donated: {total_donations_eth:.4f} ETH ≈ ${total_donations_usd:,.2f}\n\n"
+            "🐦 Twitter: https://x.com/ethlabscommu?s=21&t=YiY-bEame32rtiQ832XeFg"
         )
         return message
     
     async def check_donations(self):
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking wallet balance...")
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking donations from contract...")
         
         self.get_eth_price()
         print(f"ETH Price: ${self.eth_price:,.2f}")
         
-        current_balance = self.get_wallet_balance()
+        current_total = self.get_all_contract_donations()
         
-        if current_balance is None:
-            print("⚠️ Could not fetch balance")
+        if current_total is None:
+            print("⚠️ Could not fetch contract donations")
             return
         
-        print(f"💰 Current balance: {current_balance:.4f} ETH")
-        print(f"📊 Last balance: {self.last_balance:.4f} ETH")
+        print(f"💰 Total from contract (all time): {current_total:.4f} ETH")
+        print(f"📊 Last recorded: {self.total_donations:.4f} ETH")
         
-        if current_balance > self.last_balance:
-            new_donation = current_balance - self.last_balance
-            print(f"🎉 New donation detected: {new_donation:.4f} ETH!")
+        if current_total > self.total_donations:
+            new_donation = current_total - self.total_donations
+            print(f"🎉 New donation from contract: {new_donation:.4f} ETH!")
             
-            self.last_balance = current_balance
-            self.total_donations = current_balance
+            self.total_donations = current_total
             self.save_state()
             
-            message = self.format_donation_message(new_donation, current_balance)
+            message = self.format_donation_message(new_donation, self.total_donations)
             await self.send_telegram_message(message)
         else:
-            print(f"No change (current: {current_balance:.4f} ETH)")
+            print(f"No new donations from contract this minute")
     
     async def run(self):
-        print(f"🚀 Starting Ethlabs Donation Tracker")
-        print(f"📍 Monitoring: {self.ethlabs_wallet}\n")
+        print(f"🚀 Starting Ethlabs Contract Tracker")
+        print(f"📍 Monitoring donations FROM: {self.contract_address}")
+        print(f"📍 TO: {self.ethlabs_wallet}\n")
         
         while True:
             try:
