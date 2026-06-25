@@ -17,7 +17,7 @@ class EthlabsTracker:
         self.telegram_channel_id = channel_id
         self.ethlabs_wallet = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
         self.token_contract = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"
-        self.last_block = None
+        self.last_balance = 0.0
         self.total_donations = 0.0
         self.eth_price = 0.0
         self.image_url = "https://ibb.co/bRzrbJw3"
@@ -33,7 +33,7 @@ class EthlabsTracker:
             try:
                 with open(STATE_FILE, 'r') as f:
                     state = json.load(f)
-                    self.last_block = state.get("last_block")
+                    self.last_balance = state.get("last_balance", 0.0)
                     self.total_donations = state.get("total_donations", 0.0)
             except Exception as e:
                 print(f"Error loading state: {e}")
@@ -42,7 +42,7 @@ class EthlabsTracker:
         try:
             with open(STATE_FILE, 'w') as f:
                 json.dump({
-                    "last_block": self.last_block,
+                    "last_balance": self.last_balance,
                     "total_donations": self.total_donations
                 }, f)
         except Exception as e:
@@ -58,66 +58,8 @@ class EthlabsTracker:
             print(f"Error fetching ETH price: {e}")
         return self.eth_price
     
-    def get_current_block(self):
-        """Get current block number"""
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "eth_blockNumber",
-            "params": [],
-            "id": 1
-        }
-        
-        for rpc_url in self.rpc_urls:
-            try:
-                response = requests.post(rpc_url, json=payload, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data:
-                        return int(data["result"], 16)
-            except:
-                continue
-        
-        return None
-    
-    def get_token_events(self):
-        """Get Transfer events from token contract"""
-        current_block = self.get_current_block()
-        if not current_block:
-            print("Could not get current block")
-            return []
-        
-        start_block = self.last_block or (current_block - 100)  # Look back 100 blocks
-        
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "eth_getLogs",
-            "params": [{
-                "fromBlock": hex(start_block),
-                "toBlock": hex(current_block),
-                "address": self.token_contract,
-                "topics": [
-                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"  # Transfer event signature
-                ]
-            }],
-            "id": 1
-        }
-        
-        for rpc_url in self.rpc_urls:
-            try:
-                response = requests.post(rpc_url, json=payload, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data:
-                        self.last_block = current_block
-                        return data["result"]
-            except Exception as e:
-                print(f"  RPC failed: {type(e).__name__}")
-                continue
-        
-        return []
-    
     def get_wallet_balance(self):
-        """Get wallet balance"""
+        """Get current ETH balance - simple and reliable"""
         payload = {
             "jsonrpc": "2.0",
             "method": "eth_getBalance",
@@ -174,39 +116,38 @@ class EthlabsTracker:
         return message
     
     async def check_donations(self):
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking token contract events...")
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking wallet balance...")
         
         self.get_eth_price()
         print(f"ETH Price: ${self.eth_price:,.2f}")
         
-        # Get token transfer events
-        events = self.get_token_events()
-        print(f"📊 Token events found: {len(events)}")
-        
         # Get current wallet balance
-        wallet_balance = self.get_wallet_balance()
-        if wallet_balance is None:
-            print("⚠️ Could not fetch wallet balance")
+        current_balance = self.get_wallet_balance()
+        
+        if current_balance is None:
+            print("⚠️ Could not fetch balance")
             return
         
-        print(f"💰 Wallet balance: {wallet_balance:.4f} ETH")
+        print(f"💰 Current balance: {current_balance:.4f} ETH")
+        print(f"📊 Last balance: {self.last_balance:.4f} ETH")
         
-        if wallet_balance > self.total_donations:
-            new_donation = wallet_balance - self.total_donations
+        # Check if balance increased
+        if current_balance > self.last_balance:
+            new_donation = current_balance - self.last_balance
             print(f"🎉 New donation detected: {new_donation:.4f} ETH!")
             
-            self.total_donations = wallet_balance
+            self.last_balance = current_balance
+            self.total_donations = current_balance
             self.save_state()
             
-            message = self.format_donation_message(new_donation, wallet_balance)
+            message = self.format_donation_message(new_donation, current_balance)
             await self.send_telegram_message(message)
         else:
-            print(f"No new donations (tracked: {self.total_donations:.4f} ETH)")
+            print(f"No change (current: {current_balance:.4f} ETH)")
     
     async def run(self):
         print(f"🚀 Starting Ethlabs Donation Tracker")
-        print(f"📍 Token: {self.token_contract}")
-        print(f"📍 Wallet: {self.ethlabs_wallet}\n")
+        print(f"📍 Monitoring: {self.ethlabs_wallet}\n")
         
         while True:
             try:
