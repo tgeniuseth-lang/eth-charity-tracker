@@ -20,6 +20,7 @@ class EthlabsTracker:
         self.last_tx_hash = None
         self.total_donations = 0.0
         self.eth_price = 0.0
+        self.image_url = "https://ibb.co/bRzrbJw3"  # Your Ethlabs image
         self.rpc_urls = [
             "https://rpc.ankr.com/eth",
             "https://eth-mainnet.public.blastapi.io",
@@ -57,36 +58,12 @@ class EthlabsTracker:
             print(f"Error fetching ETH price: {e}")
         return self.eth_price
     
-    def get_contract_transactions(self):
-        """Get ETH transfers FROM token contract TO wallet"""
+    def check_contract_donations(self):
+        """Check wallet balance"""
         payload = {
             "jsonrpc": "2.0",
-            "method": "eth_getLogs",
-            "params": [{
-                "fromBlock": "0x1",
-                "toBlock": "latest",
-                "address": self.ethlabs_wallet,
-                "topics": []
-            }],
-            "id": 1
-        }
-        
-        for rpc_url in self.rpc_urls:
-            try:
-                response = requests.post(rpc_url, json=payload, timeout=10)
-                if response.status_code == 200:
-                    return response.json()
-            except:
-                continue
-        
-        return None
-    
-    def fetch_tx_details(self, tx_hash):
-        """Get transaction details to verify it's from the contract"""
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "eth_getTransactionByHash",
-            "params": [tx_hash],
+            "method": "eth_getBalance",
+            "params": [self.ethlabs_wallet, "latest"],
             "id": 1
         }
         
@@ -95,58 +72,36 @@ class EthlabsTracker:
                 response = requests.post(rpc_url, json=payload, timeout=10)
                 if response.status_code == 200:
                     data = response.json()
-                    if "result" in data and data["result"]:
-                        return data["result"]
+                    if "result" in data:
+                        balance_wei = int(data["result"], 16)
+                        balance_eth = balance_wei / 1e18
+                        print(f"✅ Wallet balance: {balance_eth:.4f} ETH")
+                        return balance_eth
             except:
                 continue
         
         return None
     
-    def check_contract_donations(self):
-        """Check for new ETH transfers from contract to wallet"""
-        try:
-            # Use a simple approach: query wallet's incoming transactions
-            # and filter for ones from the token contract
-            
-            payload = {
-                "jsonrpc": "2.0",
-                "method": "eth_getBalance",
-                "params": [self.ethlabs_wallet, "latest"],
-                "id": 1
-            }
-            
-            for rpc_url in self.rpc_urls:
-                try:
-                    response = requests.post(rpc_url, json=payload, timeout=10)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if "result" in data:
-                            balance_wei = int(data["result"], 16)
-                            balance_eth = balance_wei / 1e18
-                            print(f"✅ Wallet balance: {balance_eth:.4f} ETH")
-                            
-                            # For now, track cumulative donations manually
-                            # This is the best we can do with RPC limitations
-                            return balance_eth
-                except:
-                    continue
-            
-            return None
-            
-        except Exception as e:
-            print(f"Error checking donations: {e}")
-            return None
-    
     async def send_telegram_message(self, message):
         try:
-            await self.bot.send_message(
+            await self.bot.send_photo(
                 chat_id=self.telegram_channel_id,
-                text=message,
+                photo=self.image_url,
+                caption=message,
                 parse_mode="HTML"
             )
-            print(f"✅ Telegram message sent")
+            print(f"✅ Telegram message with image sent")
         except TelegramError as e:
             print(f"Telegram error: {e}")
+            # Fallback to text if image fails
+            try:
+                await self.bot.send_message(
+                    chat_id=self.telegram_channel_id,
+                    text=message,
+                    parse_mode="HTML"
+                )
+            except:
+                pass
         except Exception as e:
             print(f"Error sending message: {e}")
     
@@ -163,9 +118,7 @@ class EthlabsTracker:
         return message
     
     async def check_donations(self):
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for donations from contract...")
-        print(f"   Contract: {self.token_contract}")
-        print(f"   Wallet: {self.ethlabs_wallet}")
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for donations...")
         
         self.get_eth_price()
         print(f"ETH Price: ${self.eth_price:,.2f}")
@@ -178,7 +131,7 @@ class EthlabsTracker:
         
         if current_balance > self.total_donations:
             new_donation = current_balance - self.total_donations
-            print(f"🎉 New donation detected: {new_donation:.4f} ETH from contract!")
+            print(f"🎉 New donation detected: {new_donation:.4f} ETH!")
             
             self.total_donations = current_balance
             self.save_state()
@@ -190,8 +143,7 @@ class EthlabsTracker:
     
     async def run(self):
         print(f"🚀 Starting Ethlabs Donation Tracker")
-        print(f"📍 Tracking donations FROM: {self.token_contract}")
-        print(f"📍 TO wallet: {self.ethlabs_wallet}\n")
+        print(f"📍 Wallet: {self.ethlabs_wallet}\n")
         
         while True:
             try:
