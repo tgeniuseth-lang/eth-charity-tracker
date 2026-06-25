@@ -17,9 +17,7 @@ class EthlabsTracker:
         self.telegram_channel_id = channel_id
         self.etherscan_api_key = api_key
         self.ethlabs_wallet = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
-        self.token_contract = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"
-        self.last_block = None
-        self.total_donations = 0.0
+        self.last_known_balance = 0.0
         self.eth_price = 0.0
         self.load_state()
         
@@ -28,8 +26,7 @@ class EthlabsTracker:
             try:
                 with open(STATE_FILE, 'r') as f:
                     state = json.load(f)
-                    self.last_block = state.get("last_block")
-                    self.total_donations = state.get("total_donations", 0.0)
+                    self.last_known_balance = state.get("last_known_balance", 0.0)
             except Exception as e:
                 print(f"Error loading state: {e}")
     
@@ -37,8 +34,7 @@ class EthlabsTracker:
         try:
             with open(STATE_FILE, 'w') as f:
                 json.dump({
-                    "last_block": self.last_block,
-                    "total_donations": self.total_donations
+                    "last_known_balance": self.last_known_balance
                 }, f)
         except Exception as e:
             print(f"Error saving state: {e}")
@@ -53,8 +49,8 @@ class EthlabsTracker:
             print(f"Error fetching ETH price: {e}")
         return self.eth_price
     
-    def check_wallet_balance(self):
-        """Check current ETH balance in wallet"""
+    def get_wallet_balance(self):
+        """Get current ETH balance"""
         try:
             url = "https://api.etherscan.io/api"
             params = {
@@ -72,33 +68,8 @@ class EthlabsTracker:
                     balance_eth = balance_wei / 1e18
                     return balance_eth
         except Exception as e:
-            print(f"Error checking balance: {e}")
+            print(f"Error fetching balance: {e}")
         return None
-    
-    def get_all_incoming_transactions(self):
-        """Get ALL ETH transfers to wallet (not just internal)"""
-        try:
-            url = "https://api.etherscan.io/api"
-            params = {
-                "module": "account",
-                "action": "txlist",
-                "address": self.ethlabs_wallet,
-                "startblock": self.last_block or 0,
-                "endblock": 99999999,
-                "sort": "asc",
-                "apikey": self.etherscan_api_key
-            }
-            response = requests.get(url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data["status"] == "1":
-                    transactions = data["result"]
-                    if transactions:
-                        self.last_block = int(transactions[-1]["blockNumber"])
-                        return transactions
-        except Exception as e:
-            print(f"Error fetching transactions: {e}")
-        return []
     
     async def send_telegram_message(self, message):
         try:
@@ -113,52 +84,52 @@ class EthlabsTracker:
         except Exception as e:
             print(f"Error sending message: {e}")
     
-    def format_donation_message(self, donation_eth):
+    def format_donation_message(self, donation_eth, total_eth):
         donation_usd = donation_eth * self.eth_price
-        total_usd = self.total_donations * self.eth_price
+        total_usd = total_eth * self.eth_price
         
         message = (
             "🧪 <b>ETHLABS - New Donation</b> 🧪\n\n"
             f"🎉 New Donation: {donation_eth:.4f} ETH ≈ ${donation_usd:,.2f}\n"
-            f"📈 Total Donations: {self.total_donations:.4f} ETH ≈ ${total_usd:,.2f}\n\n"
+            f"📈 Total Donations: {total_eth:.4f} ETH ≈ ${total_usd:,.2f}\n\n"
             "🐦 Twitter: https://x.com/ethlabs_org?s=20"
         )
         return message
     
     async def check_donations(self):
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking wallet: {self.ethlabs_wallet}")
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking wallet...")
         
         # Get ETH price
         self.get_eth_price()
         print(f"ETH Price: ${self.eth_price:,.2f}")
         
-        # Check wallet balance
-        balance = self.check_wallet_balance()
-        if balance is not None:
-            print(f"💰 Wallet Balance: {balance:.4f} ETH (≈ ${balance * self.eth_price:,.2f})")
-        else:
-            print(f"⚠️ Could not fetch wallet balance")
+        # Get current balance
+        current_balance = self.get_wallet_balance()
         
-        # Get all transactions
-        transactions = self.get_all_incoming_transactions()
-        print(f"📊 Total transactions found: {len(transactions)}")
+        if current_balance is None:
+            print("⚠️ Could not fetch balance")
+            return
         
-        if transactions:
-            print("\n📋 Last 5 transactions:")
-            for tx in transactions[-5:]:
-                from_addr = tx.get("from", "N/A")[:10]
-                value_wei = int(tx.get("value", 0))
-                value_eth = value_wei / 1e18
-                tx_hash = tx.get("hash", "N/A")[:10]
-                print(f"  - From: {from_addr}... | Value: {value_eth:.4f} ETH | Hash: {tx_hash}...")
+        print(f"💰 Current Balance: {current_balance:.4f} ETH (≈ ${current_balance * self.eth_price:,.2f})")
+        print(f"📊 Last Known Balance: {self.last_known_balance:.4f} ETH")
+        
+        # Check if balance increased
+        if current_balance > self.last_known_balance:
+            new_donation = current_balance - self.last_known_balance
+            print(f"✅ New donation detected: {new_donation:.4f} ETH!")
+            
+            self.last_known_balance = current_balance
+            self.save_state()
+            
+            # Send Telegram message
+            message = self.format_donation_message(new_donation, current_balance)
+            await self.send_telegram_message(message)
         else:
-            print("⚠️ No transactions found. The wallet may not have received ETH yet.")
-            print(f"   Make sure trades are happening on the token!")
+            print("No new donations")
     
     async def run(self):
         print(f"🚀 Starting Ethlabs Donation Tracker")
         print(f"📍 Monitoring wallet: {self.ethlabs_wallet}")
-        print(f"📍 Token contract: {self.token_contract}")
         print(f"⏱️  Check interval: 60 seconds\n")
         
         while True:
