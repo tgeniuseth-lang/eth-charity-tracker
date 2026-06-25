@@ -14,6 +14,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")  # Your channel ID or chat ID
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 ETHLABS_WALLET = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
+TOKEN_CONTRACT = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"  # Only track donations from this CA
 CHECK_INTERVAL = 60  # 1 minute in seconds
 
 # Storage for tracking donations
@@ -83,13 +84,13 @@ class EthlabsTracker:
             print(f"Error fetching wallet balance: {e}")
         return None
     
-    def get_recent_transactions(self):
-        """Fetch recent incoming transactions to wallet"""
+    def get_contract_donations(self):
+        """Fetch internal transactions from TOKEN_CONTRACT to wallet only"""
         try:
             url = "https://api.etherscan.io/api"
             params = {
                 "module": "account",
-                "action": "txlist",
+                "action": "txlistinternal",
                 "address": self.ethlabs_wallet,
                 "startblock": self.last_block or 0,
                 "endblock": 99999999,
@@ -103,9 +104,17 @@ class EthlabsTracker:
                     transactions = data["result"]
                     if transactions:
                         self.last_block = int(transactions[-1]["blockNumber"])
-                    return transactions
+                    
+                    # Filter only transactions from TOKEN_CONTRACT to ETHLABS_WALLET
+                    filtered_txs = [
+                        tx for tx in transactions
+                        if tx["from"].lower() == TOKEN_CONTRACT.lower() 
+                        and tx["to"].lower() == self.ethlabs_wallet.lower()
+                        and tx["isError"] == "0"  # Only successful transactions
+                    ]
+                    return filtered_txs
         except Exception as e:
-            print(f"Error fetching transactions: {e}")
+            print(f"Error fetching contract donations: {e}")
         return []
     
     async def send_telegram_message(self, message):
@@ -136,39 +145,39 @@ class EthlabsTracker:
         return message
     
     async def check_donations(self):
-        """Main function to check for new donations"""
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for donations...")
+        """Main function to check for new donations from token contract"""
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for donations from {TOKEN_CONTRACT}...")
         
         # Update ETH price
         self.get_eth_price()
         print(f"ETH Price: ${self.eth_price:,.2f}")
         
-        # Get current wallet balance
-        current_balance = self.get_wallet_balance()
-        if current_balance is None:
-            print("Failed to fetch wallet balance")
-            return
+        # Get donations from token contract
+        donations = self.get_contract_donations()
+        print(f"Found {len(donations)} transactions from contract")
         
-        print(f"Wallet Balance: {current_balance:.4f} ETH")
-        
-        # Check if there's a new donation
-        if current_balance > self.total_donations:
-            new_donation = current_balance - self.total_donations
-            print(f"✅ New donation detected: {new_donation:.4f} ETH")
+        # Process new donations
+        for donation in donations:
+            donation_wei = int(donation["value"])
+            donation_eth = donation_wei / 1e18
             
-            self.total_donations = current_balance
+            print(f"✅ New donation detected: {donation_eth:.4f} ETH (tx: {donation['hash']})")
+            
+            self.total_donations += donation_eth
             self.save_state()
             
             # Send Telegram message
-            message = self.format_donation_message(new_donation)
+            message = self.format_donation_message(donation_eth)
             await self.send_telegram_message(message)
-        else:
-            print("No new donations")
+        
+        if len(donations) == 0:
+            print("No new donations from contract")
     
     async def run(self):
         """Run the tracker continuously"""
         print(f"Starting Ethlabs Donation Tracker")
         print(f"Monitoring wallet: {self.ethlabs_wallet}")
+        print(f"Only tracking donations FROM: {TOKEN_CONTRACT}")
         print(f"Check interval: {CHECK_INTERVAL} seconds")
         
         while True:
