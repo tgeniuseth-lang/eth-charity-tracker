@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 STATE_FILE = "ethlabs_state.json"
-ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
+ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY", "")
 
 class EthlabsTracker:
     def __init__(self, bot_token, channel_id):
@@ -21,6 +21,7 @@ class EthlabsTracker:
         self.total_donations = 0.0
         self.eth_price = 0.0
         self.image_url = "https://ibb.co/bRzrbJw3"
+        self.alchemy_url = f"https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
         self.load_state()
         
     def load_state(self):
@@ -52,25 +53,36 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_all_contract_donations(self):
-        """Get ALL ETH transfers FROM the contract TO the charity wallet using Etherscan V2 API"""
+        """Get ALL ETH transfers FROM the contract TO the charity wallet using Alchemy"""
         try:
-            url = f"https://api.etherscan.io/v2/api?module=account&action=txlist&address={self.ethlabs_wallet}&sort=asc&apikey={ETHERSCAN_API_KEY}"
-            response = requests.get(url, timeout=10)
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "alchemy_getAssetTransfers",
+                "params": [
+                    {
+                        "fromAddress": self.contract_address,
+                        "toAddress": self.ethlabs_wallet,
+                        "category": ["external"],
+                        "maxCount": 100
+                    }
+                ],
+                "id": 1
+            }
+            
+            response = requests.post(self.alchemy_url, json=payload, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
-                if data['status'] == '1' and data['result']:
+                if 'result' in data and data['result']['transfers']:
                     total_from_contract = 0.0
                     
-                    # Filter for transactions FROM the contract only
-                    for tx in data['result']:
-                        if tx['from'].lower() == self.contract_address.lower() and tx['to'].lower() == self.ethlabs_wallet.lower():
-                            eth_amount = int(tx['value']) / 1e18
-                            total_from_contract += eth_amount
+                    for transfer in data['result']['transfers']:
+                        eth_amount = float(transfer['value'])
+                        total_from_contract += eth_amount
                     
                     return total_from_contract
                 else:
-                    print(f"API response status: {data.get('status')} - {data.get('message')}")
+                    print(f"No transfers found")
         except Exception as e:
             print(f"Error fetching contract donations: {e}")
         
@@ -143,7 +155,7 @@ class EthlabsTracker:
             print(f"No new donations from contract this minute")
     
     async def run(self):
-        print(f"🚀 Starting Ethlabs Contract Tracker")
+        print(f"🚀 Starting Ethlabs Contract Tracker (Alchemy)")
         print(f"📍 Monitoring donations FROM: {self.contract_address}")
         print(f"📍 TO: {self.ethlabs_wallet}\n")
         
