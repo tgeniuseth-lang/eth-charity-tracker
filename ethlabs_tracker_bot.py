@@ -50,39 +50,29 @@ class EthlabsTracker:
         return self.eth_price
     
     def get_wallet_balance(self):
-        """Get current ETH balance with detailed error reporting"""
+        """Get current ETH balance using Etherscan V2 API"""
         try:
-            url = "https://api.etherscan.io/api"
+            url = "https://api.etherscan.io/api/v2/account/balance"
             params = {
-                "module": "account",
-                "action": "balance",
                 "address": self.ethlabs_wallet,
-                "tag": "latest",
                 "apikey": self.etherscan_api_key
             }
             
-            print(f"🔍 Fetching balance from Etherscan...")
-            print(f"   Wallet: {self.ethlabs_wallet}")
-            print(f"   API Key: {self.etherscan_api_key[:10]}...")
-            
             response = requests.get(url, params=params, timeout=10)
-            print(f"   Response Status: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
-                print(f"   API Response: {data}")
                 
                 if data["status"] == "1":
                     balance_wei = int(data["result"])
                     balance_eth = balance_wei / 1e18
-                    print(f"   ✅ Balance fetched: {balance_eth:.4f} ETH")
+                    print(f"✅ Balance: {balance_eth:.4f} ETH (≈ ${balance_eth * self.eth_price:,.2f})")
                     return balance_eth
                 else:
-                    print(f"   ❌ API Error: {data.get('message', 'Unknown error')}")
+                    print(f"❌ API Error: {data.get('message', 'Unknown error')}")
                     return None
             else:
-                print(f"   ❌ HTTP Error: {response.status_code}")
-                print(f"   Response: {response.text}")
+                print(f"❌ HTTP Error: {response.status_code}")
                 return None
                 
         except Exception as e:
@@ -96,7 +86,7 @@ class EthlabsTracker:
                 text=message,
                 parse_mode="HTML"
             )
-            print(f"✅ Message sent to Telegram")
+            print(f"✅ Telegram message sent")
         except TelegramError as e:
             print(f"Telegram error: {e}")
         except Exception as e:
@@ -126,12 +116,9 @@ class EthlabsTracker:
             print("⚠️ Failed to fetch balance")
             return
         
-        print(f"💰 Current Balance: {current_balance:.4f} ETH")
-        print(f"📊 Last Known Balance: {self.last_known_balance:.4f} ETH")
-        
         if current_balance > self.last_known_balance:
             new_donation = current_balance - self.last_known_balance
-            print(f"✅ New donation: {new_donation:.4f} ETH!")
+            print(f"🎉 New donation detected: {new_donation:.4f} ETH!")
             
             self.last_known_balance = current_balance
             self.save_state()
@@ -139,17 +126,17 @@ class EthlabsTracker:
             message = self.format_donation_message(new_donation, current_balance)
             await self.send_telegram_message(message)
         else:
-            print("No new donations")
+            print(f"No new donations (current: {current_balance:.4f} ETH)")
     
     async def run(self):
         print(f"🚀 Starting Ethlabs Donation Tracker")
-        print(f"📍 Wallet: {self.ethlabs_wallet}\n")
+        print(f"📍 Monitoring: {self.ethlabs_wallet}\n")
         
         while True:
             try:
                 await self.check_donations()
             except Exception as e:
-                print(f"Error in main loop: {e}")
+                print(f"Error: {e}")
             
             await asyncio.sleep(60)
 
