@@ -81,10 +81,43 @@ class EthlabsTracker:
         
         return None
     
-    async def send_telegram_message(self, message):
+async def send_telegram_message(self, message):
+    # Get all channel IDs from environment
+    channel_ids = []
+    i = 1
+    while True:
+        if i == 1:
+            channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
+        else:
+            channel_id = os.getenv(f"TELEGRAM_CHANNEL_ID_{i}")
+        
+        if not channel_id:
+            break
+        channel_ids.append(channel_id)
+        i += 1
+    
+    # Send to all channels
+    for channel_id in channel_ids:
         try:
             await self.bot.send_photo(
-                chat_id=self.telegram_channel_id,
+                chat_id=channel_id,
+                photo=self.image_url,
+                caption=message,
+                parse_mode="HTML"
+            )
+            print(f"✅ Message sent to {channel_id}")
+        except TelegramError as e:
+            print(f"Telegram error for {channel_id}: {e}")
+            try:
+                await self.bot.send_message(
+                    chat_id=channel_id,
+                    text=message,
+                    parse_mode="HTML"
+                )
+            except:
+                pass
+        except Exception as e:
+            print(f"Error sending to {channel_id}: {e}")
                 photo=self.image_url,
                 caption=message,
                 parse_mode="HTML"
