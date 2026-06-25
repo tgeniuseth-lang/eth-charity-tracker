@@ -97,8 +97,9 @@ def send_photo(caption):
 
 
 def get_internal_transactions():
-    url = "https://api.etherscan.io/api"
+    url = "https://api.etherscan.io/v2/api"
     params = {
+        "chainid": 1,
         "module": "account",
         "action": "txlistinternal",
         "address": DONATION_WALLET,
