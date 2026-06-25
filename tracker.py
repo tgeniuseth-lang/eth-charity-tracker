@@ -83,6 +83,7 @@ while True:
         if current_block > last_block:
             for block_number in range(last_block + 1, current_block + 1):
                 block = w3.eth.get_block(block_number, full_transactions=True)
+                print("Checking block:", block_number, flush=True)
 
                 for tx in block.transactions:
                     if (
