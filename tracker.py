@@ -9,21 +9,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")  # Your channel ID or chat ID
-ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
-ETHLABS_WALLET = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
-TOKEN_CONTRACT = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"  # Only track donations from this CA
-CHECK_INTERVAL = 60  # 1 minute in seconds
-
 # Storage for tracking donations
 STATE_FILE = "ethlabs_state.json"
 
 class EthlabsTracker:
-    def __init__(self):
-        self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        self.ethlabs_wallet = ETHLABS_WALLET.lower()
+    def __init__(self, bot_token, channel_id, api_key):
+        self.bot = Bot(token=bot_token)
+        self.telegram_channel_id = channel_id
+        self.etherscan_api_key = api_key
+        self.ethlabs_wallet = "0xEa985CDf2616ccDf88e037c5b2d91134278d7d79"
+        self.token_contract = "0x345aD3dd40c5a544d4f5459f75efc475FE96C5e1"
         self.last_block = None
         self.total_donations = 0.0
         self.eth_price = 0.0
@@ -62,28 +57,6 @@ class EthlabsTracker:
             print(f"Error fetching ETH price: {e}")
         return self.eth_price
     
-    def get_wallet_balance(self):
-        """Get current ETH balance of wallet via Etherscan"""
-        try:
-            url = "https://api.etherscan.io/api"
-            params = {
-                "module": "account",
-                "action": "balance",
-                "address": self.ethlabs_wallet,
-                "tag": "latest",
-                "apikey": ETHERSCAN_API_KEY
-            }
-            response = requests.get(url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data["status"] == "1":
-                    balance_wei = int(data["result"])
-                    balance_eth = balance_wei / 1e18
-                    return balance_eth
-        except Exception as e:
-            print(f"Error fetching wallet balance: {e}")
-        return None
-    
     def get_contract_donations(self):
         """Fetch internal transactions from TOKEN_CONTRACT to wallet only"""
         try:
@@ -95,7 +68,7 @@ class EthlabsTracker:
                 "startblock": self.last_block or 0,
                 "endblock": 99999999,
                 "sort": "asc",
-                "apikey": ETHERSCAN_API_KEY
+                "apikey": self.etherscan_api_key
             }
             response = requests.get(url, params=params, timeout=10)
             if response.status_code == 200:
@@ -108,7 +81,7 @@ class EthlabsTracker:
                     # Filter only transactions from TOKEN_CONTRACT to ETHLABS_WALLET
                     filtered_txs = [
                         tx for tx in transactions
-                        if tx["from"].lower() == TOKEN_CONTRACT.lower() 
+                        if tx["from"].lower() == self.token_contract.lower() 
                         and tx["to"].lower() == self.ethlabs_wallet.lower()
                         and tx["isError"] == "0"  # Only successful transactions
                     ]
@@ -121,7 +94,7 @@ class EthlabsTracker:
         """Send formatted message to Telegram"""
         try:
             await self.bot.send_message(
-                chat_id=TELEGRAM_CHANNEL_ID,
+                chat_id=self.telegram_channel_id,
                 text=message,
                 parse_mode="HTML"
             )
@@ -146,7 +119,7 @@ class EthlabsTracker:
     
     async def check_donations(self):
         """Main function to check for new donations from token contract"""
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for donations from {TOKEN_CONTRACT}...")
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for donations from {self.token_contract}...")
         
         # Update ETH price
         self.get_eth_price()
@@ -177,8 +150,8 @@ class EthlabsTracker:
         """Run the tracker continuously"""
         print(f"Starting Ethlabs Donation Tracker")
         print(f"Monitoring wallet: {self.ethlabs_wallet}")
-        print(f"Only tracking donations FROM: {TOKEN_CONTRACT}")
-        print(f"Check interval: {CHECK_INTERVAL} seconds")
+        print(f"Only tracking donations FROM: {self.token_contract}")
+        print(f"Check interval: 60 seconds")
         
         while True:
             try:
@@ -187,22 +160,27 @@ class EthlabsTracker:
                 print(f"Error in main loop: {e}")
             
             # Wait for next check
-            await asyncio.sleep(CHECK_INTERVAL)
+            await asyncio.sleep(60)
 
 async def main():
     """Main entry point"""
+    # Get environment variables
+    telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    telegram_channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
+    etherscan_api_key = os.getenv("ETHERSCAN_API_KEY")
+    
     # Validate environment variables
-    if not TELEGRAM_BOT_TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN not set in .env file")
+    if not telegram_bot_token:
+        print("❌ TELEGRAM_BOT_TOKEN not set")
         return
-    if not TELEGRAM_CHANNEL_ID:
-        print("❌ TELEGRAM_CHANNEL_ID not set in .env file")
+    if not telegram_channel_id:
+        print("❌ TELEGRAM_CHANNEL_ID not set")
         return
-    if not ETHERSCAN_API_KEY:
-        print("❌ ETHERSCAN_API_KEY not set in .env file")
+    if not etherscan_api_key:
+        print("❌ ETHERSCAN_API_KEY not set")
         return
     
-    tracker = EthlabsTracker()
+    tracker = EthlabsTracker(telegram_bot_token, telegram_channel_id, etherscan_api_key)
     await tracker.run()
 
 if __name__ == "__main__":
